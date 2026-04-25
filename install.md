@@ -1,6 +1,6 @@
 ---
 name: video-use-install
-description: Install video-use into the current agent (Claude Code, Codex, Hermes, Openclaw, etc.) and wire up ffmpeg + the ElevenLabs API key so the user can start editing immediately.
+description: Install video-use into the current agent (Claude Code, Codex, Hermes, Openclaw, etc.) and wire up ffmpeg + iFlytek long-form ASR credentials so the user can start editing immediately.
 ---
 
 # video-use install
@@ -15,7 +15,7 @@ Three things must exist on this machine:
 
 1. The `video-use` repo cloned somewhere stable.
 2. `ffmpeg` on `$PATH` (plus optional `yt-dlp` for online sources).
-3. An ElevenLabs API key in `.env` at the repo root (for Scribe transcription).
+3. iFlytek long-form ASR credentials in `.env` at the repo root (for transcription).
 
 And one thing must be true about the current agent:
 
@@ -23,7 +23,7 @@ And one thing must be true about the current agent:
 
 ## Install prompt contract
 
-- Do everything yourself. Only ask the user for things you cannot generate — the ElevenLabs API key, and confirmation before `brew install`.
+- Do everything yourself. Only ask the user for things you cannot generate — the iFlytek `APP_ID` / `SECRET_KEY`, and confirmation before `brew install`.
 - Prefer a stable clone path like `~/Developer/video-use` (not `/tmp`, not `~/Downloads`).
 - The skill references helpers by bare name (`transcribe.py`, `render.py`). That works because SKILL.md and `helpers/` ship together — keep them as siblings when you register the skill.
 - After install, verify by running one real command against one real file. Don't declare success on file-existence checks alone.
@@ -89,41 +89,40 @@ Figure out which agent you are running under, and register once. A symlink of th
 
 If you can't tell which agent you're in, ask the user once: "which agent am I running under — Claude Code, Codex, or something else?" Then pick the right target.
 
-### 5. ElevenLabs API key
+### 5. iFlytek ASR credentials
 
-Scribe (ElevenLabs) does all transcription. Without a key, nothing transcribes.
+iFlytek long-form ASR does all transcription. Without credentials, nothing transcribes.
 
 1. Check existing state in this order and stop at the first hit:
 
     ```bash
     # a) env var already exported
-    [ -n "$ELEVENLABS_API_KEY" ] && echo "env"
+    [ -n "$XFYUN_APP_ID" ] && [ -n "$XFYUN_SECRET_KEY" ] && echo "env"
     # b) .env at repo root already has it
-    grep -q '^ELEVENLABS_API_KEY=..' ~/Developer/video-use/.env 2>/dev/null && echo "dotenv"
+    grep -q '^XFYUN_APP_ID=..' ~/Developer/video-use/.env 2>/dev/null && \
+      grep -q '^XFYUN_SECRET_KEY=..' ~/Developer/video-use/.env 2>/dev/null && echo "dotenv"
     ```
 
 2. If neither is set, ask the user exactly once:
 
-    > I need an ElevenLabs API key for transcription (word-level timestamps, speaker diarization, filler tagging). Grab one at https://elevenlabs.io/app/settings/api-keys and paste it here — I'll write it to `~/Developer/video-use/.env`. Or if you already have it exported as `ELEVENLABS_API_KEY`, say "use env" and I'll skip.
+    > I need your iFlytek long-form ASR credentials for transcription: `APP_ID` and `SECRET_KEY` from the Xunfei Open Platform app that has 语音转写 enabled. Paste both here — I'll write them to `~/Developer/video-use/.env`. Or if you already have `XFYUN_APP_ID` and `XFYUN_SECRET_KEY` exported, say "use env" and I'll skip.
 
-    When the user pastes a key, write it to `~/Developer/video-use/.env`:
+    When the user pastes credentials, write them to `~/Developer/video-use/.env`:
 
     ```bash
-    printf 'ELEVENLABS_API_KEY=%s\n' "$KEY" > ~/Developer/video-use/.env
+    printf 'XFYUN_APP_ID=%s\nXFYUN_SECRET_KEY=%s\n' "$APP_ID" "$SECRET_KEY" > ~/Developer/video-use/.env
     chmod 600 ~/Developer/video-use/.env
     ```
 
-    Never echo the key back in tool output. Never commit `.env`.
+    Never echo the secret back in tool output. Never commit `.env`.
 
-3. Sanity check with a cheap, quota-free call:
+3. Sanity check without burning transcription quota:
 
     ```bash
-    curl -s -o /dev/null -w '%{http_code}\n' \
-      -H "xi-api-key: $(sed -n 's/^ELEVENLABS_API_KEY=//p' ~/Developer/video-use/.env)" \
-      https://api.elevenlabs.io/v1/user
+    python ~/Developer/video-use/helpers/transcribe.py --help >/dev/null && echo "xfyun helper OK"
     ```
 
-    `200` means the key works. `401` means the user pasted a wrong/expired key — ask once more and stop. Anything else (network, 5xx), move on and verify during first real transcription.
+    Full credential validation requires creating a transcription task, so defer it until the user provides the first clip.
 
 ### 6. Verify end-to-end
 
@@ -134,7 +133,7 @@ python ~/Developer/video-use/helpers/timeline_view.py --help >/dev/null && echo 
 ffprobe -version | head -1
 ```
 
-Full transcription test is optional at install time — it burns Scribe credits. Better to wait until the user hands you their first clip.
+Full transcription test is optional at install time — it burns iFlytek transcription quota. Better to wait until the user hands you their first clip.
 
 ### 7. Hand off
 
@@ -153,8 +152,8 @@ Tell the user, in one short message:
 ## Cold-start reminders
 
 - Symlink the **whole directory**, not just `SKILL.md`. The helpers need to sit next to it.
-- If `.env` exists but the key is empty, treat it the same as missing — don't assume existence means validity.
+- If `.env` exists but either credential is empty, treat it the same as missing — don't assume existence means validity.
 - `ffmpeg` from static builds works fine. Any modern (≥ 4.x) build is enough.
 - `yt-dlp` is optional. Don't block install on it; install lazily the first time a user asks to pull from a URL.
-- Never run transcription as part of install verification unless the user explicitly asks — Scribe costs real money.
+- Never run transcription as part of install verification unless the user explicitly asks — ASR costs real money.
 - If the user is on Linux without a package manager Claude recognizes, print the manual `ffmpeg` install URL and wait rather than guessing.

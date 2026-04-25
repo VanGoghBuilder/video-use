@@ -1,6 +1,6 @@
 """Batch-transcribe every video in a directory with 4 parallel workers.
 
-Walks <videos_dir> for common video extensions, runs ElevenLabs Scribe on
+Walks <videos_dir> for common video extensions, runs iFlytek Long Form ASR on
 each, writes transcripts to <videos_dir>/edit/transcripts/<name>.json.
 
 Cached per-file: any source that already has a transcript is skipped.
@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from transcribe import load_api_key, transcribe_one
+from transcribe import load_credentials, transcribe_one
 
 
 VIDEO_EXTS = {".mp4", ".MP4", ".mov", ".MOV", ".mkv", ".MKV", ".avi", ".AVI", ".m4v"}
@@ -48,13 +48,25 @@ def main() -> None:
         "--language",
         type=str,
         default=None,
-        help="Optional ISO language code. Omit to auto-detect per file.",
+        help="Optional iFlytek language code (default from service is 'cn'; use 'en' for English).",
     )
     ap.add_argument(
         "--num-speakers",
         type=int,
         default=None,
-        help="Optional number of speakers. Improves diarization when known.",
+        help="Optional number of speakers. 0/omitted enables blind separation.",
+    )
+    ap.add_argument(
+        "--poll-interval",
+        type=float,
+        default=30.0,
+        help="Seconds between progress checks per file (default: 30).",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=float,
+        default=6 * 60 * 60,
+        help="Max seconds to wait for each transcription (default: 21600 / 6h).",
     )
     args = ap.parse_args()
 
@@ -77,7 +89,7 @@ def main() -> None:
         print("nothing to do")
         return
 
-    api_key = load_api_key()
+    app_id, secret_key = load_credentials()
 
     print(f"transcribing {len(pending)} files with {args.workers} parallel workers")
     t0 = time.time()
@@ -89,9 +101,12 @@ def main() -> None:
                 transcribe_one,
                 video=v,
                 edit_dir=edit_dir,
-                api_key=api_key,
+                app_id=app_id,
+                secret_key=secret_key,
                 language=args.language,
                 num_speakers=args.num_speakers,
+                poll_interval=args.poll_interval,
+                timeout_seconds=args.timeout,
                 verbose=False,
             ): v
             for v in pending
